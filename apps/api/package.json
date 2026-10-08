@@ -1,0 +1,1 @@
+{"name":"@family-expense/api","version":"0.1.0","private":true,"type":"module","main":"src/index.ts","scripts":{"typecheck":"tsc --noEmit","test":"vitest run"},"dependencies":{"@family-expense/domain":"workspace:*","@family-expense/financial-engine":"workspace:*"},"devDependencies":{"vitest":"^3.2.4"}}
