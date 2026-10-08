@@ -2,20 +2,14 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import { assertCurrency, assertPositiveMinorUnits } from "@family-expense/domain";
 import { splitEqually, validateBalancedExpense } from "@family-expense/financial-engine";
-import { getDatabaseClient, createExpense, createSettlement, confirmSettlement, getSpaceBalances } from "@family-expense/database";
+import { getDatabaseClient, createExpense, createSettlement, confirmSettlement, getSpaceBalances, leaveSpace } from "@family-expense/database";
 
 export type CreateExpenseCommand = {
-  spaceId: string;
-  description: string;
-  currency: string;
-  amountMinor: bigint;
-  payerId: string;
-  participantIds: string[];
+  spaceId: string; description: string; currency: string; amountMinor: bigint; payerId: string; participantIds: string[];
 };
 
 export function prepareEqualExpense(command: CreateExpenseCommand) {
-  assertCurrency(command.currency);
-  assertPositiveMinorUnits(command.amountMinor);
+  assertCurrency(command.currency); assertPositiveMinorUnits(command.amountMinor);
   if (!command.spaceId || !command.description.trim() || !command.payerId) throw new Error("Missing required expense fields");
   const splits = splitEqually(command.amountMinor, command.participantIds);
   validateBalancedExpense(command.amountMinor, [command.amountMinor], [...splits.values()]);
@@ -24,31 +18,29 @@ export function prepareEqualExpense(command: CreateExpenseCommand) {
 
 const expenseSchema = z.object({
   spaceId: z.string().min(1), actorUserId: z.string().min(1), description: z.string().trim().min(1).max(500),
-  expenseDate: z.string().datetime(), currency: z.string().length(3), amountMinor: z.string().regex(/^[1-9]\\d*$/),
-  groupAmountMinor: z.string().regex(/^[1-9]\\d*$/), groupCurrency: z.string().length(3),
-  payers: z.array(z.object({ userId: z.string().min(1), amountMinor: z.string().regex(/^[1-9]\\d*$/), groupAmountMinor: z.string().regex(/^[1-9]\\d*$/) })).min(1),
-  splits: z.array(z.object({ userId: z.string().min(1), amountMinor: z.string().regex(/^[1-9]\\d*$/), groupAmountMinor: z.string().regex(/^[1-9]\\d*$/), splitType: z.enum(["EQUAL","EXACT","PERCENTAGE","SHARES","ITEMIZED"]).optional() })).min(1),
+  expenseDate: z.string().datetime(), currency: z.string().length(3), amountMinor: z.string().regex(/^[1-9]\d*$/),
+  groupAmountMinor: z.string().regex(/^[1-9]\d*$/), groupCurrency: z.string().length(3),
+  payers: z.array(z.object({ userId: z.string().min(1), amountMinor: z.string().regex(/^[1-9]\d*$/), groupAmountMinor: z.string().regex(/^[1-9]\d*$/) })).min(1),
+  splits: z.array(z.object({ userId: z.string().min(1), amountMinor: z.string().regex(/^[1-9]\d*$/), groupAmountMinor: z.string().regex(/^[1-9]\d*$/), splitType: z.enum(["EQUAL","EXACT","PERCENTAGE","SHARES","ITEMIZED"]).optional() })).min(1),
   fxRate: z.string().optional(), fxSource: z.string().max(100).optional(), fxTimestamp: z.string().datetime().optional(),
   idempotencyKey: z.string().min(8).max(200),
 });
 const settlementSchema = z.object({
   spaceId: z.string().min(1), actorUserId: z.string().min(1), payerId: z.string().min(1), receiverId: z.string().min(1),
-  amountMinor: z.string().regex(/^[1-9]\\d*$/), currency: z.string().length(3), method: z.string().trim().min(1).max(50),
-  idempotencyKey: z.string().min(8).max(200),
+  amountMinor: z.string().regex(/^[1-9]\d*$/), currency: z.string().length(3), method: z.string().trim().min(1).max(50), idempotencyKey: z.string().min(8).max(200),
 });
 const confirmSchema = z.object({
-  spaceId: z.string().min(1), actorUserId: z.string().min(1), settlementId: z.string().min(1), idempotencyKey: z.string().min(8).max(200),
+  actorUserId: z.string().min(1), settlementId: z.string().min(1), idempotencyKey: z.string().min(8).max(200),
 });
+const leaveSchema = z.object({ actorUserId: z.string().min(1), idempotencyKey: z.string().min(8).max(200) });
 function bigint(value: string) { return BigInt(value); }
 
 export function buildApp(db = getDatabaseClient()): FastifyInstance {
   const app = Fastify({ logger: true });
-
   app.setErrorHandler((error, _request, reply) => {
     const status = error.name === "ZodError" ? 400 : 409;
     reply.code(status).send({ error: error.message, code: error.message });
   });
-
   app.get("/health", async () => ({ status: "ok", service: "family-expense-api" }));
 
   app.post("/expenses", async (request, reply) => {
@@ -70,8 +62,8 @@ export function buildApp(db = getDatabaseClient()): FastifyInstance {
 
   app.post("/settlements/:settlementId/confirm", async (request, reply) => {
     const params = z.object({ settlementId: z.string().min(1) }).parse(request.params);
-    const body = confirmSchema.omit({ settlementId: true }).parse(request.body);
-    const result = await confirmSettlement(db, { ...body, settlementId: params.settlementId });
+    const body = confirmSchema.parse(request.body);
+    const result = await confirmSettlement(db, { ...body, spaceId: body.actorUserId ? (request.headers["x-space-id"] as string ?? "") : "", settlementId: params.settlementId });
     reply.code(result.statusCode).send(result.response);
   });
 
@@ -81,7 +73,14 @@ export function buildApp(db = getDatabaseClient()): FastifyInstance {
     reply.send(rows.map(row => ({ ...row, balanceMinor: row.balanceMinor.toString() })));
   });
 
+  app.post("/spaces/:spaceId/members/:userId/leave", async (request, reply) => {
+    const params = z.object({ spaceId: z.string().min(1), userId: z.string().min(1) }).parse(request.params);
+    const body = leaveSchema.parse(request.body);
+    const result = await leaveSpace(db, { ...params, ...body });
+    reply.code(result.statusCode).send(result.response);
+  });
+
   return app;
 }
 
-export { expenseSchema, settlementSchema, confirmSchema };
+export { expenseSchema, settlementSchema, confirmSchema, leaveSchema };
