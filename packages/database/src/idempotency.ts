@@ -1,8 +1,21 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 
+function canonicalize(value: unknown): unknown {
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => [k, canonicalize(v)]),
+    );
+  }
+  return value;
+}
+
 export function hashRequest(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
 }
 
 export async function claimIdempotencyKey(
@@ -20,19 +33,8 @@ export async function claimIdempotencyKey(
     return { replay: true, response: existing.response, statusCode: existing.statusCode };
   }
 
-  try {
-    await db.idempotencyKey.create({
-      data: { scope, key, requestHash },
-    });
-    return { replay: false, response: null, statusCode: null };
-  } catch {
-    const raced = await db.idempotencyKey.findUnique({ where: { scope_key: { scope, key } } });
-    if (!raced) throw new Error("IDEMPOTENCY_CLAIM_FAILED");
-    if (raced.requestHash !== requestHash) {
-      throw new Error("IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST");
-    }
-    return { replay: true, response: raced.response, statusCode: raced.statusCode };
-  }
+  await db.idempotencyKey.create({ data: { scope, key, requestHash } });
+  return { replay: false, response: null, statusCode: null };
 }
 
 export async function completeIdempotencyKey(
@@ -42,8 +44,9 @@ export async function completeIdempotencyKey(
   response: unknown,
   statusCode: number,
 ): Promise<void> {
+  const jsonResponse = canonicalize(response) as object;
   await db.idempotencyKey.update({
     where: { scope_key: { scope, key } },
-    data: { response: response as object, statusCode },
+    data: { response: jsonResponse, statusCode },
   });
 }
