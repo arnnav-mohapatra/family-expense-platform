@@ -10,6 +10,8 @@ export type CreateExpenseInput = {
   expenseDate: Date;
   currency: string;
   amountMinor: bigint;
+  groupAmountMinor: bigint;
+  groupCurrency: string;
   payers: { userId: string; amountMinor: bigint }[];
   splits: { userId: string; amountMinor: bigint; splitType?: "EQUAL" | "EXACT" | "PERCENTAGE" | "SHARES" | "ITEMIZED" }[];
   fxRate?: string;
@@ -29,7 +31,9 @@ function responseFor(expense: { id: string; version: number; groupAmountMinor: b
 
 export async function createExpense(db: PrismaClient, input: CreateExpenseInput) {
   const currency = assertCurrency(input.currency);
+  const groupCurrency = assertCurrency(input.groupCurrency);
   assertPositiveMinorUnits(input.amountMinor);
+  assertPositiveMinorUnits(input.groupAmountMinor);
 
   if (!input.description.trim()) throw new Error("DESCRIPTION_REQUIRED");
   if (!input.payers.length) throw new Error("AT_LEAST_ONE_PAYER_REQUIRED");
@@ -48,7 +52,7 @@ export async function createExpense(db: PrismaClient, input: CreateExpenseInput)
     });
     if (!membership || membership.status !== "ACTIVE") throw new Error("ACTOR_NOT_ACTIVE_MEMBER");
 
-    const payerTotal = input.payers.reduce((s, p) => s + p.amountMinor, 0n);
+      const payerTotal = input.payers.reduce((s, p) => s + p.amountMinor, 0n);
     const splitTotal = input.splits.reduce((s, p) => s + p.amountMinor, 0n);
     if (payerTotal !== input.amountMinor || splitTotal !== input.amountMinor) {
       throw new Error("EXPENSE_NOT_BALANCED");
@@ -73,7 +77,7 @@ export async function createExpense(db: PrismaClient, input: CreateExpenseInput)
         originalCurrency: currency,
         originalAmountMinor: input.amountMinor,
         groupCurrency: space.defaultCurrency,
-        groupAmountMinor: input.amountMinor,
+        groupAmountMinor: input.groupAmountMinor,
         fxRate: input.fxRate,
         fxSource: input.fxSource,
         fxTimestamp: input.fxTimestamp,
@@ -82,12 +86,16 @@ export async function createExpense(db: PrismaClient, input: CreateExpenseInput)
       },
     });
 
-    const ledger = buildExpenseLedgerLines(
-      expense.id,
-      space.defaultCurrency,
-      input.payers.map(p => ({ userId: p.userId, groupAmountMinor: p.amountMinor })),
-      input.splits.map(s => ({ userId: s.userId, groupAmountMinor: s.amountMinor })),
-    );
+    if (groupCurrency !== space.defaultCurrency) throw new Error("GROUP_CURRENCY_MUST_MATCH_SPACE");
+    if (currency !== groupCurrency && !input.fxRate) throw new Error("FX_RATE_REQUIRED_FOR_CURRENCY_CONVERSION");
+    const payerGroupAmounts = input.payers.map(p => ({ userId: p.userId, groupAmountMinor: p.amountMinor }));
+    const splitGroupAmounts = input.splits.map(s => ({ userId: s.userId, groupAmountMinor: s.amountMinor }));
+    const groupPayerTotal = payerGroupAmounts.reduce((s, p) => s + p.groupAmountMinor, 0n);
+    const groupSplitTotal = splitGroupAmounts.reduce((s, p) => s + p.groupAmountMinor, 0n);
+    if (groupPayerTotal !== input.groupAmountMinor || groupSplitTotal !== input.groupAmountMinor) {
+      throw new Error("GROUP_CURRENCY_EXPENSE_NOT_BALANCED");
+    }
+    const ledger = buildExpenseLedgerLines(expense.id, space.defaultCurrency, payerGroupAmounts, splitGroupAmounts);
 
     const last = await tx.ledgerEntry.findFirst({
       where: { spaceId: input.spaceId },
