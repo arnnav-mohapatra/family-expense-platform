@@ -96,3 +96,5 @@ export {
 } from "./splits";
 
 export type { SplitMode, SplitInput } from "./splits";
+export { calculateItemizedSplit } from "./itemized";
+export type { ItemizedItem, ItemizedValidation } from "./itemized";
