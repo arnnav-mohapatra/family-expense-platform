@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import { assertCurrency, assertPositiveMinorUnits } from "@family-expense/domain";
 import { splitEqually, validateBalancedExpense } from "@family-expense/financial-engine";
-import { getDatabaseClient, createExpense, createSettlement, confirmSettlement, getSpaceBalances, leaveSpace } from "@family-expense/database";
+import { getDatabaseClient, createExpense, createSettlement, confirmSettlement, getSpaceBalances, leaveSpace, voidExpense } from "@family-expense/database";
 
 export type CreateExpenseCommand = {
   spaceId: string; description: string; currency: string; amountMinor: bigint; payerId: string; participantIds: string[];
@@ -33,6 +33,7 @@ const confirmSchema = z.object({
   spaceId: z.string().min(1), actorUserId: z.string().min(1), settlementId: z.string().min(1), idempotencyKey: z.string().min(8).max(200),
 });
 const leaveSchema = z.object({ actorUserId: z.string().min(1), idempotencyKey: z.string().min(8).max(200) });
+const voidExpenseSchema = z.object({ actorUserId: z.string().min(1), reason: z.string().trim().min(3).max(500), idempotencyKey: z.string().min(8).max(200) });
 function bigint(value: string) { return BigInt(value); }
 
 export function buildApp(db = getDatabaseClient()): FastifyInstance {
@@ -73,7 +74,7 @@ export function buildApp(db = getDatabaseClient()): FastifyInstance {
     reply.send(rows.map(row => ({ ...row, balanceMinor: row.balanceMinor.toString() })));
   });
 
-  app.post("/spaces/:spaceId/members/:userId/leave", async (request, reply) => {
+  app.post("/expenses/:expenseId/void", async (request, reply) => {\n    const params = z.object({ expenseId: z.string().min(1) }).parse(request.params);\n    const body = voidExpenseSchema.parse(request.body);\n    const spaceId = z.string().min(1).parse(request.headers["x-space-id"]);\n    const result = await voidExpense(db, { ...params, ...body, spaceId });\n    reply.code(result.statusCode).send(result.response);\n  });\n\n  app.post("/spaces/:spaceId/members/:userId/leave", async (request, reply) => {
     const params = z.object({ spaceId: z.string().min(1), userId: z.string().min(1) }).parse(request.params);
     const body = leaveSchema.parse(request.body);
     const result = await leaveSpace(db, { ...params, ...body });
@@ -83,4 +84,4 @@ export function buildApp(db = getDatabaseClient()): FastifyInstance {
   return app;
 }
 
-export { expenseSchema, settlementSchema, confirmSchema, leaveSchema };
+export { expenseSchema, settlementSchema, confirmSchema, leaveSchema, voidExpenseSchema };
