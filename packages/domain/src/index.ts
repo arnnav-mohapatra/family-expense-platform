@@ -1,22 +1,14 @@
 export type SpaceType = "HOUSEHOLD" | "FAMILY" | "TRIP" | "FRIENDS" | "CUSTOM";
-
 export type AccountType = "REGISTERED" | "MANAGED" | "GHOST";
-
+export type MembershipRole = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
+export type MembershipStatus = "INVITED" | "ACTIVE" | "LEFT" | "REMOVED";
 export type SplitType = "EQUAL" | "EXACT" | "PERCENTAGE" | "SHARES" | "ITEMIZED";
-
-export type Money = {
-  amountMinor: bigint;
-  currency: string;
-};
-
-export type Expense = {
-  id: string;
-  spaceId: string;
-  description: string;
-  original: Money;
-  groupAmountMinor: bigint;
-  groupCurrency: string;
-  fxRate: string;
-  createdBy: string;
-  version: number;
-};
+export type ExpenseStatus = "ACTIVE" | "ADJUSTED" | "VOIDED";
+export type SettlementStatus = "PENDING" | "CONFIRMED" | "CANCELLED";
+export type Money = { amountMinor: bigint; currency: string };
+export type Expense = { id:string; spaceId:string; description:string; original:Money; groupAmountMinor:bigint; groupCurrency:string; fxRate:string; createdBy:string; version:number };
+export type ExpensePayer = { userId:string; amountMinor:bigint; currency:string; groupAmountMinor:bigint };
+export type ExpenseSplit = { userId:string; splitType:SplitType; groupAmountMinor:bigint; percentage?:string; shares?:bigint };
+export type Settlement = { id:string; spaceId:string; payerId:string; receiverId:string; amountMinor:bigint; currency:string; status:SettlementStatus };
+export function assertCurrency(currency:string):string { const normalized=currency.trim().toUpperCase(); if(!/^[A-Z]{3}$/.test(normalized)) throw new Error("Currency must be a 3-letter ISO code"); return normalized; }
+export function assertPositiveMinorUnits(amountMinor:bigint):void { if(amountMinor<=0n) throw new Error("Amount must be greater than zero"); }
