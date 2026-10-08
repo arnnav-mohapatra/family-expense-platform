@@ -55,24 +55,27 @@ export async function materializeDueRecurringExpenses(db: PrismaClient, now = ne
   const templates = await db.recurringExpense.findMany({ where:{active:true,nextOccurrence:{lte:now}} });
   const created: string[] = [];
   for (const template of templates) {
-    const result = await db.$transaction(async tx => {
-      await lockSpace(tx as unknown as PrismaClient, template.spaceId);
-      const current = await tx.recurringExpense.findUnique({where:{id:template.id}});
-      if (!current || !current.active || current.nextOccurrence > now) return null;
-      const config = current.splitConfig as unknown as SplitConfig;
-      const occurrenceKey = `recurring:${current.id}:${current.nextOccurrence.toISOString()}`;
-      const splits = config.map(s=>({userId:s.userId,amountMinor:BigInt(s.groupAmountMinor),groupAmountMinor:BigInt(s.groupAmountMinor),splitType:"EXACT" as const}));
-      const expense = await createExpense(tx as unknown as PrismaClient, {
-        spaceId: current.spaceId, actorUserId: current.createdById, description: current.description,
-        expenseDate: current.nextOccurrence, currency: current.currency, amountMinor: current.amountMinor,
-        groupAmountMinor: current.amountMinor, groupCurrency: current.currency,
-        payers:[{userId:current.payerId,amountMinor:current.amountMinor,groupAmountMinor:current.amountMinor}],
-        splits, idempotencyKey:occurrenceKey,
-      });
-      await tx.recurringExpense.update({where:{id:current.id},data:{nextOccurrence:advance(current.nextOccurrence,current.frequency,current.interval)}});
-      return expense;
+    const current = await db.recurringExpense.findUnique({where:{id:template.id}});
+    if (!current || !current.active || current.nextOccurrence > now) continue;
+    const occurrenceAt = current.nextOccurrence;
+    const config = current.splitConfig as unknown as SplitConfig;
+    const occurrenceKey = `recurring:${current.id}:${occurrenceAt.toISOString()}`;
+    const splits = config.map(s=>({userId:s.userId,amountMinor:BigInt(s.groupAmountMinor),groupAmountMinor:BigInt(s.groupAmountMinor),splitType:"EXACT" as const}));
+    const expense = await createExpense(db, {
+      spaceId: current.spaceId, actorUserId: current.createdById, description: current.description,
+      expenseDate: occurrenceAt, currency: current.currency, amountMinor: current.amountMinor,
+      groupAmountMinor: current.amountMinor, groupCurrency: current.currency,
+      payers:[{userId:current.payerId,amountMinor:current.amountMinor,groupAmountMinor:current.amountMinor}],
+      splits, idempotencyKey:occurrenceKey,
+    });
+    await db.$transaction(async tx => {
+      await lockSpace(tx as unknown as PrismaClient, current.spaceId);
+      const locked = await tx.recurringExpense.findUnique({where:{id:current.id}});
+      if (locked && locked.active && locked.nextOccurrence.getTime() === occurrenceAt.getTime()) {
+        await tx.recurringExpense.update({where:{id:current.id},data:{nextOccurrence:advance(occurrenceAt,current.frequency,current.interval)}});
+      }
     }, {isolationLevel:"Serializable",maxWait:5000,timeout:10000});
-    if (result && !result.replay) created.push(result.response.expenseId);
+    if (!expense.replay) created.push(expense.response.expenseId);
   }
   return created;
 }
