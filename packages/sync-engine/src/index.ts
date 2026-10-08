@@ -18,3 +18,29 @@ export function deterministicEventOrder<T>(events: SyncEvent<T>[]) {
 }
 export interface SyncStore { appendOutbox(event:SyncEvent):Promise<void>; listOutbox(limit:number):Promise<SyncEvent[]>; acknowledge(eventIds:string[]):Promise<void>; }
 export interface SyncTransport { push(events:SyncEvent[]):Promise<{accepted:string[];rejected:{eventId:string;reason:string}[]}>; pull(cursor?:string):Promise<{events:SyncEvent[];nextCursor?:string}>; }
+export type OutboxState = "PENDING" | "IN_FLIGHT" | "FAILED";
+
+export type OutboxItem<T = unknown> = {
+  id: string;
+  event: SyncEvent<T>;
+  attempts: number;
+  state: OutboxState;
+  nextAttemptAt: string;
+};
+
+export function nextRetryAt(now: Date, attempts: number, maxDelayMs = 60_000): string {
+  const exponent = Math.min(Math.max(attempts, 0), 8);
+  const delayMs = Math.min(1000 * 2 ** exponent, maxDelayMs);
+  return new Date(now.getTime() + delayMs).toISOString();
+}
+
+export function dedupeEvents<T extends { eventId: string }>(events: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const event of events) {
+    if (seen.has(event.eventId)) continue;
+    seen.add(event.eventId);
+    result.push(event);
+  }
+  return result;
+}
