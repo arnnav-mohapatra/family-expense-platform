@@ -1,0 +1,5 @@
+import React from "react";
+import {Pressable,StyleSheet,Text,View} from "react-native";
+import {theme} from "../theme";
+export function BalanceCard({name,balanceMinor,currency,onPress}:{name:string;balanceMinor:string;currency:string;onPress?:()=>void}){const n=Number(balanceMinor)/100;const positive=n>0;return <Pressable onPress={onPress} style={({pressed})=>[styles.card,pressed&&styles.pressed]}><View><Text style={styles.name}>{name}</Text><Text style={styles.caption}>{positive?"gets back":"owes"} in {currency}</Text></View><Text style={[styles.amount,{color:positive?theme.accent:theme.ink}]}>{positive?"+":"−"}{Math.abs(n).toFixed(2)}</Text></Pressable>}
+const styles=StyleSheet.create({card:{backgroundColor:theme.surface,borderRadius:theme.radius.md,padding:theme.space.md,flexDirection:"row",alignItems:"center",justifyContent:"space-between",borderWidth:1,borderColor:theme.border,shadowOpacity:.05,shadowRadius:12,shadowOffset:{width:0,height:5}},pressed:{opacity:.75,transform:[{scale:.99}]},name:{fontSize:16,fontWeight:"700",color:theme.ink},caption:{marginTop:4,fontSize:12,color:theme.muted},amount:{fontSize:20,fontWeight:"800"}});
