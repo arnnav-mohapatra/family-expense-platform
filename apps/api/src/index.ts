@@ -1,0 +1,4 @@
+import { assertCurrency, assertPositiveMinorUnits } from "@family-expense/domain";
+import { splitEqually, validateBalancedExpense } from "@family-expense/financial-engine";
+export type CreateExpenseCommand={spaceId:string;description:string;currency:string;amountMinor:bigint;payerId:string;participantIds:string[]};
+export function prepareEqualExpense(command:CreateExpenseCommand){assertCurrency(command.currency);assertPositiveMinorUnits(command.amountMinor);if(!command.spaceId||!command.description.trim()||!command.payerId)throw new Error("Missing required expense fields");const splits=splitEqually(command.amountMinor,command.participantIds);validateBalancedExpense(command.amountMinor,[command.amountMinor],[...splits.values()]);return {...command,currency:command.currency.toUpperCase(),splits};}
