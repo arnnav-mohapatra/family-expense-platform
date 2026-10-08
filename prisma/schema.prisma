@@ -18,6 +18,7 @@ enum ExpenseStatus { ACTIVE ADJUSTED VOIDED }
 enum SettlementStatus { PENDING CONFIRMED CANCELLED }
 enum LedgerDirection { DEBIT CREDIT }
 enum ExpenseAdjustmentType { VOID CORRECTION }
+enum RecurrenceFrequency { DAILY WEEKLY MONTHLY YEARLY }
 
 model User {
   id String @id @default(uuid()) @db.Uuid
@@ -254,11 +255,16 @@ model RecurringExpense {
   amountMinor BigInt
   currency String @db.VarChar(3)
   recurrenceRule String
+  frequency RecurrenceFrequency
+  interval Int @default(1)
+  payerId String @db.Uuid
+  splitConfig Json
   nextOccurrence DateTime
   active Boolean @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   space Space @relation(fields:[spaceId], references:[id], onDelete:Restrict)
+  payer User @relation(fields:[payerId], references:[id], onDelete:Restrict)
   @@index([active,nextOccurrence])
 }
 
