@@ -1,27 +1,6 @@
-export type BalanceMap = ReadonlyMap<string, bigint>;
-
-/**
- * Deterministically simplify balances using a greedy creditor/debtor matcher.
- * Positive values are amounts owed to the member; negative values are amounts owed by them.
- */
-export function simplifyDebts(balances: BalanceMap): Array<{ from: string; to: string; amountMinor: bigint }> {
-  const debtors = [...balances].filter(([, amount]) => amount < 0).map(([id, amount]) => ({ id, amount: -amount }));
-  const creditors = [...balances].filter(([, amount]) => amount > 0).map(([id, amount]) => ({ id, amount }));
-  debtors.sort(([a], [b]) => a.localeCompare(b));
-  creditors.sort(([a], [b]) => a.localeCompare(b));
-
-  const result: Array<{ from: string; to: string; amountMinor: bigint }> = [];
-  let d = 0;
-  let c = 0;
-  while (d < debtors.length && c < creditors.length) {
-    const debtor = debtors[d]!;
-    const creditor = creditors[c]!;
-    const amountMinor = debtor.amount < creditor.amount ? debtor.amount : creditor.amount;
-    if (amountMinor > 0n) result.push({ from: debtor.id, to: creditor.id, amountMinor });
-    debtor.amount -= amountMinor;
-    creditor.amount -= amountMinor;
-    if (debtor.amount === 0n) d++;
-    if (creditor.amount === 0n) c++;
-  }
-  return result;
-}
+export type BalanceMap = ReadonlyMap<string,bigint>;
+export type Transaction = {from:string;to:string;amountMinor:bigint};
+export function validateBalancedExpense(totalMinor:bigint,payerAmounts:bigint[],splitAmounts:bigint[]):void { if(totalMinor<=0n) throw new Error("Expense total must be positive"); if(payerAmounts.some(a=>a<0n)||splitAmounts.some(a=>a<0n)) throw new Error("Amounts cannot be negative"); if(payerAmounts.reduce((s,a)=>s+a,0n)!==totalMinor) throw new Error("Payer amounts must equal expense total"); if(splitAmounts.reduce((s,a)=>s+a,0n)!==totalMinor) throw new Error("Split amounts must equal expense total"); }
+export function splitEqually(totalMinor:bigint,memberIds:readonly string[]):Map<string,bigint> { if(totalMinor<0n) throw new Error("Total cannot be negative"); if(memberIds.length===0) throw new Error("At least one member is required"); const ids=[...new Set(memberIds)].sort((a,b)=>a.localeCompare(b)); if(ids.length!==memberIds.length) throw new Error("Duplicate members are not allowed"); const base=totalMinor/BigInt(ids.length); let remainder=totalMinor%BigInt(ids.length); const result=new Map<string,bigint>(); for(const id of ids){const extra=remainder>0n?1n:0n; result.set(id,base+extra); if(remainder>0n) remainder--; } return result; }
+export function calculateBalances(payers:readonly {userId:string;amountMinor:bigint}[],splits:readonly {userId:string;amountMinor:bigint}[]):Map<string,bigint> { const balances=new Map<string,bigint>(); for(const p of payers) balances.set(p.userId,(balances.get(p.userId)??0n)+p.amountMinor); for(const s of splits) balances.set(s.userId,(balances.get(s.userId)??0n)-s.amountMinor); return balances; }
+export function simplifyDebts(balances:BalanceMap):Transaction[] { const debtors=[...balances].filter(([,a])=>a<0n).map(([id,a])=>({id,amount:-a})).sort((a,b)=>a.id.localeCompare(b.id)); const creditors=[...balances].filter(([,a])=>a>0n).map(([id,a])=>({id,amount:a})).sort((a,b)=>a.id.localeCompare(b.id)); const result:Transaction[]=[]; let d=0,c=0; while(d<debtors.length&&c<creditors.length){const x=debtors[d]!,y=creditors[c]!,amount=x.amount<y.amount?x.amount:y.amount;if(amount>0n)result.push({from:x.id,to:y.id,amountMinor:amount});x.amount-=amount;y.amount-=amount;if(x.amount===0n)d++;if(y.amount===0n)c++;} return result; }
