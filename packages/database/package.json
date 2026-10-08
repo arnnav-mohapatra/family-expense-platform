@@ -1,0 +1,17 @@
+{
+  "name": "@family-expense/database",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "generate": "prisma generate --schema ../../prisma/schema.prisma",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.2"
+  },
+  "devDependencies": {
+    "prisma": "^6.16.2",
+    "typescript": "^5.9.2"
+  }
+}
