@@ -1,0 +1,1 @@
+{"name":"@family-expense/api-client","version":"0.1.0","private":true,"type":"module","main":"src/index.ts","scripts":{"typecheck":"tsc --noEmit"},"dependencies":{"@family-expense/domain":"workspace:*"},"devDependencies":{"typescript":"~5.9.2"}}
