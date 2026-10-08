@@ -30,7 +30,7 @@ const settlementSchema = z.object({
   amountMinor: z.string().regex(/^[1-9]\d*$/), currency: z.string().length(3), method: z.string().trim().min(1).max(50), idempotencyKey: z.string().min(8).max(200),
 });
 const confirmSchema = z.object({
-  actorUserId: z.string().min(1), settlementId: z.string().min(1), idempotencyKey: z.string().min(8).max(200),
+  spaceId: z.string().min(1), actorUserId: z.string().min(1), settlementId: z.string().min(1), idempotencyKey: z.string().min(8).max(200),
 });
 const leaveSchema = z.object({ actorUserId: z.string().min(1), idempotencyKey: z.string().min(8).max(200) });
 function bigint(value: string) { return BigInt(value); }
@@ -63,7 +63,7 @@ export function buildApp(db = getDatabaseClient()): FastifyInstance {
   app.post("/settlements/:settlementId/confirm", async (request, reply) => {
     const params = z.object({ settlementId: z.string().min(1) }).parse(request.params);
     const body = confirmSchema.parse(request.body);
-    const result = await confirmSettlement(db, { ...body, spaceId: body.actorUserId ? (request.headers["x-space-id"] as string ?? "") : "", settlementId: params.settlementId });
+    const result = await confirmSettlement(db, { ...body, settlementId: params.settlementId });
     reply.code(result.statusCode).send(result.response);
   });
 
