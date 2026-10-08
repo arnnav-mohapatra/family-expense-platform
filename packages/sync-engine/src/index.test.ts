@@ -1,0 +1,3 @@
+import {describe,expect,it} from "vitest";
+import {compareClocks,incrementClock,mergeClocks,deterministicEventOrder} from "./index";
+describe("sync engine",()=>{it("merges clocks",()=>expect(mergeClocks({a:1},{a:3,b:2})).toEqual({a:3,b:2}));it("detects concurrency",()=>expect(compareClocks({a:1},{b:1})).toBe("CONCURRENT"));it("increments",()=>expect(incrementClock({a:1},"a")).toEqual({a:2}));it("orders deterministically",()=>expect(deterministicEventOrder([{eventId:"b",deviceId:"z",sequence:1,entityId:"1",entityType:"x",occurredAt:"2026-01-01",vectorClock:{},payload:{}},{eventId:"a",deviceId:"a",sequence:1,entityId:"1",entityType:"x",occurredAt:"2026-01-01",vectorClock:{},payload:{}}])[0].eventId).toBe("a"));});
