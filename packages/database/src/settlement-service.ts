@@ -66,14 +66,14 @@ export async function confirmSettlement(db:PrismaClient,input:ConfirmSettlementI
   },{isolationLevel:"Serializable",maxWait:5000,timeout:10000});
 }
 
-async function calculateSpaceBalances(tx:PrismaClient,spaceId:string,includePending=false){
+async function calculateSpaceBalances(tx:PrismaClient,spaceId:string,includePending=false,excludeSettlementId?:string){
   const balances=new Map<string,bigint>();
   const expenses=await tx.expense.findMany({where:{spaceId,status:{in:["ACTIVE","ADJUSTED"]}},include:{payers:true,splits:true}});
   for(const expense of expenses){
     for(const payer of expense.payers)balances.set(payer.userId,(balances.get(payer.userId)??0n)+payer.groupAmountMinor);
     for(const split of expense.splits)balances.set(split.userId,(balances.get(split.userId)??0n)-split.groupAmountMinor);
   }
-  const settlements=await tx.settlement.findMany({where:{spaceId,status:includePending?{in:["PENDING","CONFIRMED"]}:"CONFIRMED"}});
+  const settlements=await tx.settlement.findMany({where:{spaceId,status:includePending?{in:["PENDING","CONFIRMED"]}:"CONFIRMED",...(excludeSettlementId?{id:{not:excludeSettlementId}}:{})}});
   for(const settlement of settlements){
     balances.set(settlement.payerId,(balances.get(settlement.payerId)??0n)+settlement.amountMinor);
     balances.set(settlement.receiverId,(balances.get(settlement.receiverId)??0n)-settlement.amountMinor);
