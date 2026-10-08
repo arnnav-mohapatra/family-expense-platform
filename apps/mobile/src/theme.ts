@@ -1,0 +1,1 @@
+export const theme={bg:"#F5F7F4",surface:"#FFFFFF",ink:"#18201B",muted:"#718078",accent:"#2F6B4F",accentSoft:"#DCEBDF",danger:"#B94A48",border:"#E4E9E5",radius:{sm:10,md:16,lg:24},space:{xs:6,sm:10,md:16,lg:24,xl:32}} as const;
