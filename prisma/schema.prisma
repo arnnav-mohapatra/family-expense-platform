@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountType { REGISTERED MANAGED GHOST }
+enum UserStatus { ACTIVE INVITED DISABLED }
+enum SpaceType { HOUSEHOLD FAMILY TRIP FRIENDS CUSTOM }
+enum SpaceStatus { ACTIVE ARCHIVED }
+enum MembershipRole { OWNER ADMIN MEMBER VIEWER }
+enum MembershipStatus { INVITED ACTIVE LEFT REMOVED }
+enum SplitType { EQUAL EXACT PERCENTAGE SHARES ITEMIZED }
+enum ExpenseStatus { ACTIVE ADJUSTED VOIDED }
+enum SettlementStatus { PENDING CONFIRMED CANCELLED }
+enum LedgerDirection { DEBIT CREDIT }
+
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  email String? @unique
+  phone String? @unique
+  displayName String
+  accountType AccountType @default(REGISTERED)
+  status UserStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  managedBy ManagedAccount[] @relation("ManagedUser")
+  manages ManagedAccount[] @relation("Manager")
+  memberships SpaceMember[]
+  createdSpaces Space[] @relation("SpaceCreator")
+  expenses Expense[] @relation("ExpenseCreator")
+  payers ExpensePayer[]
+  splits ExpenseSplit[]
+  auditEvents AuditEvent[]
+  settlementsSent Settlement[] @relation("SettlementPayer")
+  settlementsReceived Settlement[] @relation("SettlementReceiver")
+  ledgerEntries LedgerEntry[]
+}
+
+model ManagedAccount {
+  userId String @id @db.Uuid
+  managerUserId String @db.Uuid
+  permissions Json
+  approvalRequired Boolean @default(true)
+  user User @relation("ManagedUser", fields:[userId], references:[id], onDelete:Restrict)
+  manager User @relation("Manager", fields:[managerUserId], references:[id], onDelete:Restrict)
+}
+
+model Space {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  type SpaceType
+  defaultCurrency String @db.VarChar(3)
+  status SpaceStatus @default(ACTIVE)
+  createdById String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  creator User @relation("SpaceCreator", fields:[createdById], references:[id], onDelete:Restrict)
+  members SpaceMember[]
+  expenses Expense[]
+  settlements Settlement[]
+  auditEvents AuditEvent[]
+  recurringExpenses RecurringExpense[]
+  @@index([createdById])
+}
+
+model SpaceMember {
+  spaceId String @db.Uuid
+  userId String @db.Uuid
+  role MembershipRole @default(MEMBER)
+  status MembershipStatus @default(INVITED)
+  joinedAt DateTime?
+  leftAt DateTime?
+  space Space @relation(fields:[spaceId], references:[id], onDelete:Restrict)
+  user User @relation(fields:[userId], references:[id], onDelete:Restrict)
+  @@id([spaceId,userId])
+  @@index([userId,status])
+}
+
+model Expense {
+  id String @id @default(uuid()) @db.Uuid
+  spaceId String @db.Uuid
+  createdById String @db.Uuid
+  description String
+  expenseDate DateTime
+  originalCurrency String @db.VarChar(3)
+  originalAmountMinor BigInt
+  groupCurrency String @db.VarChar(3)
+  groupAmountMinor BigInt
+  fxRate Decimal? @db.Decimal(30,15)
+  fxSource String?
+  fxTimestamp DateTime?
+  status ExpenseStatus @default(ACTIVE)
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  space Space @relation(fields:[spaceId], references:[id], onDelete:Restrict)
+  creator User @relation("ExpenseCreator", fields:[createdById], references:[id], onDelete:Restrict)
+  payers ExpensePayer[]
+  splits ExpenseSplit[]
+  items ExpenseItem[]
+  ledgerEntries LedgerEntry[]
+  auditEvents AuditEvent[]
+  @@index([spaceId,expenseDate])
+}
+
+model ExpensePayer {
+  id String @id @default(uuid()) @db.Uuid
+  expenseId String @db.Uuid
+  userId String @db.Uuid
+  amountMinor BigInt
+  currency String @db.VarChar(3)
+  groupAmountMinor BigInt
+  expense Expense @relation(fields:[expenseId], references:[id], onDelete:Restrict)
+  user User @relation(fields:[userId], references:[id], onDelete:Restrict)
+  @@index([expenseId])
+}
+
+model ExpenseSplit {
+  id String @id @default(uuid()) @db.Uuid
+  expenseId String @db.Uuid
+  userId String @db.Uuid
+  splitType SplitType
+  groupAmountMinor BigInt
+  percentage Decimal? @db.Decimal(10,6)
+  shares BigInt?
+  expense Expense @relation(fields:[expenseId], references:[id], onDelete:Restrict)
+  user User @relation(fields:[userId], references:[id], onDelete:Restrict)
+  @@index([expenseId])
+}
+
+model ExpenseItem {
+  id String @id @default(uuid()) @db.Uuid
+  expenseId String @db.Uuid
+  description String
+  quantity Decimal @db.Decimal(18,6)
+  unitPriceMinor BigInt
+  taxAmountMinor BigInt @default(0)
+  totalAmountMinor BigInt
+  currency String @db.VarChar(3)
+  expense Expense @relation(fields:[expenseId], references:[id], onDelete:Restrict)
+  assignments ExpenseItemAssignment[]
+}
+
+model ExpenseItemAssignment {
+  id String @id @default(uuid()) @db.Uuid
+  itemId String @db.Uuid
+  userId String @db.Uuid
+  amountMinor BigInt
+  item ExpenseItem @relation(fields:[itemId], references:[id], onDelete:Restrict)
+  user User @relation(fields:[userId], references:[id], onDelete:Restrict)
+  @@index([itemId])
+}
+
+model LedgerEntry {
+  id String @id @default(uuid()) @db.Uuid
+  spaceId String @db.Uuid
+  expenseId String? @db.Uuid
+  settlementId String? @db.Uuid
+  eventType String
+  sourceId String
+  accountUserId String @db.Uuid
+  counterpartyUserId String? @db.Uuid
+  currency String @db.VarChar(3)
+  amountMinor BigInt
+  direction LedgerDirection
+  sequenceNumber BigInt
+  createdAt DateTime @default(now())
+  space Space @relation(fields:[spaceId], references:[id], onDelete:Restrict)
+  expense Expense? @relation(fields:[expenseId], references:[id], onDelete:Restrict)
+  accountUser User @relation(fields:[accountUserId], references:[id], onDelete:Restrict)
+  @@unique([spaceId,sequenceNumber])
+  @@index([spaceId,accountUserId])
+  @@index([sourceId,eventType])
+}
+
+model Settlement {
+  id String @id @default(uuid()) @db.Uuid
+  spaceId String @db.Uuid
+  payerId String @db.Uuid
+  receiverId String @db.Uuid
+  amountMinor BigInt
+  currency String @db.VarChar(3)
+  method String
+  status SettlementStatus @default(PENDING)
+  createdById String @db.Uuid
+  confirmedAt DateTime?
+  createdAt DateTime @default(now())
+  space Space @relation(fields:[spaceId], references:[id], onDelete:Restrict)
+  payer User @relation("SettlementPayer", fields:[payerId], references:[id], onDelete:Restrict)
+  receiver User @relation("SettlementReceiver", fields:[receiverId], references:[id], onDelete:Restrict)
+  allocations SettlementAllocation[]
+  @@index([spaceId,status])
+}
+
+model SettlementAllocation {
+  id String @id @default(uuid()) @db.Uuid
+  settlementId String @db.Uuid
+  expenseId String @db.Uuid
+  amountMinor BigInt
+  settlement Settlement @relation(fields:[settlementId], references:[id], onDelete:Restrict)
+  expense Expense @relation(fields:[expenseId], references:[id], onDelete:Restrict)
+  @@unique([settlementId,expenseId])
+}
+
+model AuditEvent {
+  id String @id @default(uuid()) @db.Uuid
+  spaceId String @db.Uuid
+  actorUserId String @db.Uuid
+  action String
+  entityType String
+  entityId String
+  previousVersion Int?
+  newVersion Int?
+  metadata Json
+  createdAt DateTime @default(now())
+  space Space @relation(fields:[spaceId], references:[id], onDelete:Restrict)
+  actor User @relation(fields:[actorUserId], references:[id], onDelete:Restrict)
+  @@index([spaceId,createdAt])
+  @@index([entityType,entityId])
+}
+
+model RecurringExpense {
+  id String @id @default(uuid()) @default(uuid()) @db.Uuid
+  spaceId String @db.Uuid
+  createdById String @db.Uuid
+  description String
+  amountMinor BigInt
+  currency String @db.VarChar(3)
+  recurrenceRule String
+  nextOccurrence DateTime
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  space Space @relation(fields:[spaceId], references:[id], onDelete:Restrict)
+  @@index([active,nextOccurrence])
+}
+
+model IdempotencyKey {
+  id String @id @default(uuid()) @db.Uuid
+  scope String
+  key String
+  requestHash String
+  response Json?
+  statusCode Int?
+  createdAt DateTime @default(now())
+  expiresAt DateTime?
+  @@unique([scope,key])
+}
