@@ -1,0 +1,5 @@
+import React from "react";
+import {Pressable,StyleSheet,Text} from "react-native";
+import {theme} from "../theme";
+export function FloatingAddButton({onPress}:{onPress:()=>void}){return <Pressable accessibilityRole="button" accessibilityLabel="Add expense" onPress={onPress} style={({pressed})=>[styles.button,pressed&&styles.pressed]}><Text style={styles.plus}>+</Text><Text style={styles.label}>Expense</Text></Pressable>}
+const styles=StyleSheet.create({button:{position:"absolute",right:20,bottom:28,height:58,paddingHorizontal:20,borderRadius:29,backgroundColor:theme.accent,flexDirection:"row",alignItems:"center",gap:8,elevation:8,shadowOpacity:.2,shadowRadius:14,shadowOffset:{width:0,height:7}},pressed:{transform:[{scale:.96}]},plus:{color:"#fff",fontSize:25,fontWeight:"300"},label:{color:"#fff",fontWeight:"800",fontSize:14}});
