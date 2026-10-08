@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { z } from "zod";
 import { assertCurrency, assertPositiveMinorUnits } from "@family-expense/domain";
 import { splitEqually, validateBalancedExpense } from "@family-expense/financial-engine";
-import { getDatabaseClient, createExpense, createSettlement, confirmSettlement } from "@family-expense/database";
+import { getDatabaseClient, createExpense, createSettlement, confirmSettlement, getSpaceBalances } from "@family-expense/database";
 
 export type CreateExpenseCommand = {
   spaceId: string;
@@ -23,40 +23,22 @@ export function prepareEqualExpense(command: CreateExpenseCommand) {
 }
 
 const expenseSchema = z.object({
-  spaceId: z.string().min(1),
-  actorUserId: z.string().min(1),
-  description: z.string().trim().min(1).max(500),
-  expenseDate: z.string().datetime(),
-  currency: z.string().length(3),
-  amountMinor: z.string().regex(/^[1-9]\\d*$/),
-  groupAmountMinor: z.string().regex(/^[1-9]\\d*$/),
-  groupCurrency: z.string().length(3),
+  spaceId: z.string().min(1), actorUserId: z.string().min(1), description: z.string().trim().min(1).max(500),
+  expenseDate: z.string().datetime(), currency: z.string().length(3), amountMinor: z.string().regex(/^[1-9]\\d*$/),
+  groupAmountMinor: z.string().regex(/^[1-9]\\d*$/), groupCurrency: z.string().length(3),
   payers: z.array(z.object({ userId: z.string().min(1), amountMinor: z.string().regex(/^[1-9]\\d*$/), groupAmountMinor: z.string().regex(/^[1-9]\\d*$/) })).min(1),
   splits: z.array(z.object({ userId: z.string().min(1), amountMinor: z.string().regex(/^[1-9]\\d*$/), groupAmountMinor: z.string().regex(/^[1-9]\\d*$/), splitType: z.enum(["EQUAL","EXACT","PERCENTAGE","SHARES","ITEMIZED"]).optional() })).min(1),
-  fxRate: z.string().optional(),
-  fxSource: z.string().max(100).optional(),
-  fxTimestamp: z.string().datetime().optional(),
+  fxRate: z.string().optional(), fxSource: z.string().max(100).optional(), fxTimestamp: z.string().datetime().optional(),
   idempotencyKey: z.string().min(8).max(200),
 });
-
 const settlementSchema = z.object({
-  spaceId: z.string().min(1),
-  actorUserId: z.string().min(1),
-  payerId: z.string().min(1),
-  receiverId: z.string().min(1),
-  amountMinor: z.string().regex(/^[1-9]\\d*$/),
-  currency: z.string().length(3),
-  method: z.string().trim().min(1).max(50),
+  spaceId: z.string().min(1), actorUserId: z.string().min(1), payerId: z.string().min(1), receiverId: z.string().min(1),
+  amountMinor: z.string().regex(/^[1-9]\\d*$/), currency: z.string().length(3), method: z.string().trim().min(1).max(50),
   idempotencyKey: z.string().min(8).max(200),
 });
-
 const confirmSchema = z.object({
-  spaceId: z.string().min(1),
-  actorUserId: z.string().min(1),
-  settlementId: z.string().min(1),
-  idempotencyKey: z.string().min(8).max(200),
+  spaceId: z.string().min(1), actorUserId: z.string().min(1), settlementId: z.string().min(1), idempotencyKey: z.string().min(8).max(200),
 });
-
 function bigint(value: string) { return BigInt(value); }
 
 export function buildApp(db = getDatabaseClient()): FastifyInstance {
@@ -67,13 +49,12 @@ export function buildApp(db = getDatabaseClient()): FastifyInstance {
     reply.code(status).send({ error: error.message, code: error.message });
   });
 
+  app.get("/health", async () => ({ status: "ok", service: "family-expense-api" }));
+
   app.post("/expenses", async (request, reply) => {
     const body = expenseSchema.parse(request.body);
     const result = await createExpense(db, {
-      ...body,
-      expenseDate: new Date(body.expenseDate),
-      amountMinor: bigint(body.amountMinor),
-      groupAmountMinor: bigint(body.groupAmountMinor),
+      ...body, expenseDate: new Date(body.expenseDate), amountMinor: bigint(body.amountMinor), groupAmountMinor: bigint(body.groupAmountMinor),
       payers: body.payers.map(p => ({ ...p, amountMinor: bigint(p.amountMinor), groupAmountMinor: bigint(p.groupAmountMinor) })),
       splits: body.splits.map(s => ({ ...s, amountMinor: bigint(s.amountMinor), groupAmountMinor: bigint(s.groupAmountMinor) })),
       fxTimestamp: body.fxTimestamp ? new Date(body.fxTimestamp) : undefined,
@@ -94,7 +75,11 @@ export function buildApp(db = getDatabaseClient()): FastifyInstance {
     reply.code(result.statusCode).send(result.response);
   });
 
-  app.get("/health", async () => ({ status: "ok", service: "family-expense-api" }));
+  app.get("/spaces/:spaceId/balances", async (request, reply) => {
+    const params = z.object({ spaceId: z.string().min(1) }).parse(request.params);
+    const rows = await getSpaceBalances(db, params.spaceId);
+    reply.send(rows.map(row => ({ ...row, balanceMinor: row.balanceMinor.toString() })));
+  });
 
   return app;
 }
