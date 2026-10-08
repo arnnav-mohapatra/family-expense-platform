@@ -12,8 +12,8 @@ export type CreateExpenseInput = {
   amountMinor: bigint;
   groupAmountMinor: bigint;
   groupCurrency: string;
-  payers: { userId: string; amountMinor: bigint }[];
-  splits: { userId: string; amountMinor: bigint; splitType?: "EQUAL" | "EXACT" | "PERCENTAGE" | "SHARES" | "ITEMIZED" }[];
+  payers: { userId: string; amountMinor: bigint; groupAmountMinor: bigint }[];
+  splits: { userId: string; amountMinor: bigint; groupAmountMinor: bigint; splitType?: "EQUAL" | "EXACT" | "PERCENTAGE" | "SHARES" | "ITEMIZED" }[];
   fxRate?: string;
   fxSource?: string;
   fxTimestamp?: Date;
@@ -81,15 +81,15 @@ export async function createExpense(db: PrismaClient, input: CreateExpenseInput)
         fxRate: input.fxRate,
         fxSource: input.fxSource,
         fxTimestamp: input.fxTimestamp,
-        payers: { create: input.payers.map(p => ({ userId: p.userId, amountMinor: p.amountMinor, currency, groupAmountMinor: p.amountMinor })) },
-        splits: { create: input.splits.map(s => ({ userId: s.userId, splitType: s.splitType ?? "EXACT", groupAmountMinor: s.amountMinor })) },
+        payers: { create: input.payers.map(p => ({ userId: p.userId, amountMinor: p.amountMinor, currency, groupAmountMinor: p.groupAmountMinor })) },
+        splits: { create: input.splits.map(s => ({ userId: s.userId, splitType: s.splitType ?? "EXACT", groupAmountMinor: s.groupAmountMinor })) },
       },
     });
 
     if (groupCurrency !== space.defaultCurrency) throw new Error("GROUP_CURRENCY_MUST_MATCH_SPACE");
     if (currency !== groupCurrency && !input.fxRate) throw new Error("FX_RATE_REQUIRED_FOR_CURRENCY_CONVERSION");
-    const payerGroupAmounts = input.payers.map(p => ({ userId: p.userId, groupAmountMinor: p.amountMinor }));
-    const splitGroupAmounts = input.splits.map(s => ({ userId: s.userId, groupAmountMinor: s.amountMinor }));
+    const payerGroupAmounts = input.payers.map(p => ({ userId: p.userId, groupAmountMinor: p.groupAmountMinor }));
+    const splitGroupAmounts = input.splits.map(s => ({ userId: s.userId, groupAmountMinor: s.groupAmountMinor }));
     const groupPayerTotal = payerGroupAmounts.reduce((s, p) => s + p.groupAmountMinor, 0n);
     const groupSplitTotal = splitGroupAmounts.reduce((s, p) => s + p.groupAmountMinor, 0n);
     if (groupPayerTotal !== input.groupAmountMinor || groupSplitTotal !== input.groupAmountMinor) {
