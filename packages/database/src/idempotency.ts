@@ -33,8 +33,16 @@ export async function claimIdempotencyKey(
     return { replay: true, response: existing.response, statusCode: existing.statusCode };
   }
 
-  await db.idempotencyKey.create({ data: { scope, key, requestHash } });
-  return { replay: false, response: null, statusCode: null };
+  await db.idempotencyKey.createMany({
+    data: [{ scope, key, requestHash }],
+    skipDuplicates: true,
+  });
+  const claimed = await db.idempotencyKey.findUnique({ where: { scope_key: { scope, key } } });
+  if (!claimed) throw new Error("IDEMPOTENCY_CLAIM_FAILED");
+  if (claimed.requestHash !== requestHash) {
+    throw new Error("IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST");
+  }
+  return { replay: claimed.response !== null, response: claimed.response, statusCode: claimed.statusCode };
 }
 
 export async function completeIdempotencyKey(
