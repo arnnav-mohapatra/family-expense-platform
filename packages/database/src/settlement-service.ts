@@ -49,9 +49,13 @@ export async function confirmSettlement(db:PrismaClient,input:ConfirmSettlementI
     if(settlement.status!=="PENDING")throw new Error("SETTLEMENT_NOT_CONFIRMABLE");
     const actor=await tx.spaceMember.findUnique({where:{spaceId_userId:{spaceId:input.spaceId,userId:input.actorUserId}}});
     if(!actor||actor.status!=="ACTIVE")throw new Error("ACTOR_NOT_ACTIVE_MEMBER");
-    const balances=await calculateSpaceBalances(tx as unknown as PrismaClient,input.spaceId,true);
+
+    // Exclude the settlement being confirmed from the balance snapshot. Pending
+    // settlements reserve debt, but the current settlement must not reserve itself.
+    const balances=await calculateSpaceBalances(tx as unknown as PrismaClient,input.spaceId,true,input.settlementId);
     const payerBalance=balances.get(settlement.payerId)??0n;
     if(payerBalance>=0n||settlement.amountMinor>-payerBalance)throw new Error("SETTLEMENT_EXCEEDS_AVAILABLE_BALANCE");
+
     await tx.settlement.update({where:{id:settlement.id},data:{status:"CONFIRMED",confirmedAt:new Date()}});
     const last=await tx.ledgerEntry.findFirst({where:{spaceId:input.spaceId},orderBy:{sequenceNumber:"desc"},select:{sequenceNumber:true}});
     const sequence=(last?.sequenceNumber??0n)+1n;
