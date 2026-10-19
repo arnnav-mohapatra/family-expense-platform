@@ -7,30 +7,93 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum AccountType { REGISTERED MANAGED GHOST }
-enum UserStatus { ACTIVE INVITED DISABLED }
-enum SpaceType { HOUSEHOLD FAMILY TRIP FRIENDS CUSTOM }
-enum SpaceStatus { ACTIVE ARCHIVED }
-enum MembershipRole { OWNER ADMIN MEMBER VIEWER }
-enum MembershipStatus { INVITED ACTIVE LEFT REMOVED }
-enum SplitType { EQUAL EXACT PERCENTAGE SHARES ITEMIZED }
-enum ExpenseStatus { ACTIVE ADJUSTED VOIDED }
-enum SettlementStatus { PENDING CONFIRMED CANCELLED }
-enum LedgerDirection { DEBIT CREDIT }
-enum ExpenseAdjustmentType { VOID CORRECTION }
-enum RecurrenceFrequency { DAILY WEEKLY MONTHLY YEARLY }
+enum AccountType {
+  REGISTERED
+  MANAGED
+  GHOST
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum SpaceType {
+  HOUSEHOLD
+  FAMILY
+  TRIP
+  FRIENDS
+  CUSTOM
+}
+
+enum SpaceStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  LEFT
+  REMOVED
+}
+
+enum SplitType {
+  EQUAL
+  EXACT
+  PERCENTAGE
+  SHARES
+  ITEMIZED
+}
+
+enum ExpenseStatus {
+  ACTIVE
+  ADJUSTED
+  VOIDED
+}
+
+enum SettlementStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum ExpenseAdjustmentType {
+  VOID
+  CORRECTION
+}
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
 
 model User {
   id String @id @default(uuid()) @db.Uuid
+  name String
   email String? @unique
-  phone String? @unique
-  displayName String
   accountType AccountType @default(REGISTERED)
   status UserStatus @default(ACTIVE)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  managedBy ManagedAccount[] @relation("ManagedUser")
-  manages ManagedAccount[] @relation("Manager")
+  managedById String? @db.Uuid
+  managedBy User? @relation("UserManager", fields:[managedById], references:[id], onDelete:Restrict)
+  manages User[] @relation("UserManager")
   memberships SpaceMember[]
   createdSpaces Space[] @relation("SpaceCreator")
   expenses Expense[] @relation("ExpenseCreator")
@@ -42,47 +105,53 @@ model User {
   createdSettlements Settlement[] @relation("SettlementCreator")
   ledgerEntries LedgerEntry[]
   expenseAdjustments ExpenseAdjustment[]
+  createdRecurringExpenses RecurringExpense[] @relation("RecurringExpenseCreator")
+  managedAccount ManagedAccount?
+  @@index([managedById])
 }
 
 model ManagedAccount {
-  userId String @id @db.Uuid
-  managerUserId String @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+  managerId String @db.Uuid
   permissions Json
-  approvalRequired Boolean @default(true)
-  user User @relation("ManagedUser", fields:[userId], references:[id], onDelete:Restrict)
-  manager User @relation("Manager", fields:[managerUserId], references:[id], onDelete:Restrict)
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId], references:[id], onDelete:Restrict)
+  manager User @relation(fields:[managerId], references:[id], onDelete:Restrict)
+  @@index([managerId])
 }
 
 model Space {
   id String @id @default(uuid()) @db.Uuid
   name String
   type SpaceType
-  defaultCurrency String @db.VarChar(3)
   status SpaceStatus @default(ACTIVE)
+  defaultCurrency String @db.VarChar(3)
   createdById String @db.Uuid
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  creator User @relation("SpaceCreator", fields:[createdById], references:[id], onDelete:Restrict)
+  createdBy User @relation("SpaceCreator", fields:[createdById], references:[id], onDelete:Restrict)
   members SpaceMember[]
   expenses Expense[]
   settlements Settlement[]
   auditEvents AuditEvent[]
   recurringExpenses RecurringExpense[]
   expenseAdjustments ExpenseAdjustment[]
-  @@index([createdById])
+  @@index([status])
 }
 
 model SpaceMember {
+  id String @id @default(uuid()) @db.Uuid
   spaceId String @db.Uuid
   userId String @db.Uuid
   role MembershipRole @default(MEMBER)
-  status MembershipStatus @default(INVITED)
-  joinedAt DateTime?
+  status MembershipStatus @default(ACTIVE)
+  joinedAt DateTime @default(now())
   leftAt DateTime?
   space Space @relation(fields:[spaceId], references:[id], onDelete:Restrict)
   user User @relation(fields:[userId], references:[id], onDelete:Restrict)
-  @@id([spaceId,userId])
-  @@index([userId,status])
+  @@unique([spaceId,userId])
+  @@index([spaceId,status])
 }
 
 model Expense {
@@ -91,26 +160,28 @@ model Expense {
   createdById String @db.Uuid
   description String
   expenseDate DateTime
-  originalCurrency String @db.VarChar(3)
-  originalAmountMinor BigInt
+  currency String @db.VarChar(3)
+  amountMinor BigInt
   groupCurrency String @db.VarChar(3)
   groupAmountMinor BigInt
-  fxRate Decimal? @db.Decimal(30,15)
+  fxRate Decimal? @db.Decimal(24,12)
   fxSource String?
   fxTimestamp DateTime?
+  splitType SplitType
   status ExpenseStatus @default(ACTIVE)
   version Int @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   space Space @relation(fields:[spaceId], references:[id], onDelete:Restrict)
-  creator User @relation("ExpenseCreator", fields:[createdById], references:[id], onDelete:Restrict)
+  createdBy User @relation("ExpenseCreator", fields:[createdById], references:[id], onDelete:Restrict)
   payers ExpensePayer[]
   splits ExpenseSplit[]
   items ExpenseItem[]
   ledgerEntries LedgerEntry[]
-  auditEvents AuditEvent[]
   adjustments ExpenseAdjustment[]
+  settlementAllocations SettlementAllocation[]
   @@index([spaceId,expenseDate])
+  @@index([spaceId,status])
 }
 
 model ExpensePayer {
@@ -118,37 +189,32 @@ model ExpensePayer {
   expenseId String @db.Uuid
   userId String @db.Uuid
   amountMinor BigInt
-  currency String @db.VarChar(3)
   groupAmountMinor BigInt
   expense Expense @relation(fields:[expenseId], references:[id], onDelete:Restrict)
   user User @relation(fields:[userId], references:[id], onDelete:Restrict)
-  @@index([expenseId])
+  @@unique([expenseId,userId])
 }
 
 model ExpenseSplit {
   id String @id @default(uuid()) @db.Uuid
   expenseId String @db.Uuid
   userId String @db.Uuid
-  splitType SplitType
+  amountMinor BigInt
   groupAmountMinor BigInt
-  percentage Decimal? @db.Decimal(10,6)
-  shares BigInt?
+  splitType SplitType
   expense Expense @relation(fields:[expenseId], references:[id], onDelete:Restrict)
   user User @relation(fields:[userId], references:[id], onDelete:Restrict)
-  @@index([expenseId])
+  @@unique([expenseId,userId])
 }
 
 model ExpenseItem {
   id String @id @default(uuid()) @db.Uuid
   expenseId String @db.Uuid
-  description String
-  quantity Decimal @db.Decimal(18,6)
-  unitPriceMinor BigInt
-  taxAmountMinor BigInt @default(0)
-  totalAmountMinor BigInt
-  currency String @db.VarChar(3)
+  name String
+  totalMinor BigInt
   expense Expense @relation(fields:[expenseId], references:[id], onDelete:Restrict)
   assignments ExpenseItemAssignment[]
+  @@index([expenseId])
 }
 
 model ExpenseItemAssignment {
@@ -213,6 +279,7 @@ model SettlementAllocation {
   settlement Settlement @relation(fields:[settlementId], references:[id], onDelete:Restrict)
   expense Expense @relation(fields:[expenseId], references:[id], onDelete:Restrict)
   @@unique([settlementId,expenseId])
+  @@index([expenseId])
 }
 
 model ExpenseAdjustment {
@@ -264,8 +331,9 @@ model RecurringExpense {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   space Space @relation(fields:[spaceId], references:[id], onDelete:Restrict)
+  createdBy User @relation("RecurringExpenseCreator", fields:[createdById], references:[id], onDelete:Restrict)
   payer User @relation(fields:[payerId], references:[id], onDelete:Restrict)
-  @@index([active,nextOccurrence])
+  @@index([spaceId,active,nextOccurrence])
 }
 
 model IdempotencyKey {
@@ -276,6 +344,6 @@ model IdempotencyKey {
   response Json?
   statusCode Int?
   createdAt DateTime @default(now())
-  expiresAt DateTime?
+  completedAt DateTime?
   @@unique([scope,key])
 }
